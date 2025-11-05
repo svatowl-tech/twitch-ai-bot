@@ -1,6 +1,6 @@
 MIT License
 
-Copyright (c) 2024 Twitch AI Bot Team
+Copyright (c) 2025 SvatOwl Tech
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -19,3 +19,38 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+================================================================================
+
+ADDITIONAL TERMS FOR TWITCH AI BOT
+
+This software is designed for use with Twitch streaming platform. By using this
+software, you agree to comply with Twitch's Terms of Service and Community
+Guidelines.
+
+Third-Party Services Integration:
+- Twitch API usage subject to Twitch Developer Agreement
+- Polza.ai API subject to their terms of service
+- Discord API usage subject to Discord Developer Terms of Service
+- Google Sheets API subject to Google API Terms of Service
+- Spotify API usage subject to Spotify Developer Terms of Service
+- YouTube API usage subject to Google/YouTube Terms of Service
+
+Commercial Use:
+- Commercial use of this software is permitted under MIT license
+- However, respect the terms of service of all integrated third-party APIs
+- Some APIs may have usage limits or require payment for commercial use
+
+Support and Maintenance:
+- This project is maintained by SvatOwl Tech community
+- No guarantee of ongoing support or updates
+- Community-driven development and support
+
+Privacy:
+- The bot may collect certain data as described in the documentation
+- Users should review the privacy implications when deploying
+- Data collection follows applicable privacy laws (GDPR, CCPA, etc.)
+
+For questions about this license, contact: legal@svatowl-tech.com
+
+Last Updated: November 5, 2025
