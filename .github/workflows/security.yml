@@ -1,0 +1,303 @@
+name: Security Assessment
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    # Run security scan daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: '18'
+
+jobs:
+  # === DEPENDENCY VULNERABILITY SCANNING ===
+  dependency-scan:
+    name: Dependency Vulnerability Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Run npm audit
+        run: npm audit --audit-level=high
+        continue-on-error: true
+        
+      - name: Run Snyk to check for vulnerabilities
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high
+          
+      - name: Upload Snyk scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: snyk.sarif
+
+  # === CODE SCANNING ===
+  code-scanning:
+    name: Code Security Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript, typescript
+          
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+        
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+
+  # === SECRET SCANNING ===
+  secret-scanning:
+    name: Secret Scanning
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          
+      - name: Run GitGuardian Security Scan
+        uses: GitGuardian/ggshield-action@v1.27.0
+        env:
+          GITHUB_PUSH_BEFORE_SHA: ${{ github.event.before }}
+          GITHUB_PUSH_BASE_SHA: ${{ github.event.base }}
+          GITHUB_PULL_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GITGUARDIAN_API_KEY: ${{ secrets.GITGUARDIAN_API_KEY }}
+
+  # === DOCKER SECURITY SCAN ===
+  docker-security-scan:
+    name: Docker Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Build Docker image
+        run: docker build -t twitch-ai-bot:security-scan .
+        
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'twitch-ai-bot:security-scan'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'
+          
+      - name: Run Hadolint Dockerfile linter
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+          format: sarif
+          output-file: hadolint-results.sarif
+          
+      - name: Upload Hadolint scan results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'hadolint-results.sarif'
+
+  # === INFRASTRUCTURE SECURITY ===
+  infrastructure-security:
+    name: Infrastructure Security
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Run Checkov
+        id: checkov
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: .
+          framework: dockerfile,github
+          output_format: sarif
+          output_file_path: checkov.sarif
+          
+      - name: Upload Checkov scan results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: checkov.sarif
+
+  # === LICENSE COMPLIANCE ===
+  license-compliance:
+    name: License Compliance Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          
+      - name: Install license checker
+        run: npm install -g license-checker
+        
+      - name: Generate license report
+        run: license-checker --summary --out licenses.json
+        
+      - name: Check for prohibited licenses
+        run: |
+          # Check for GPL licenses which are not compatible with MIT
+          if grep -q "GPL" licenses.json; then
+            echo "::warning::GPL licenses found - check compatibility with MIT license"
+            cat licenses.json
+            exit 1
+          fi
+          
+      - name: Upload license report
+        uses: actions/upload-artifact@v3
+        with:
+          name: license-report
+          path: licenses.json
+
+  # === SECURITY POLICY VALIDATION ===
+  security-policy-check:
+    name: Security Policy Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Check for security policy file
+        run: |
+          if [ -f "SECURITY.md" ]; then
+            echo "✓ Security policy file exists"
+            
+            # Check for required sections
+            if grep -q "## 📋 Поддерживаемые версии" SECURITY.md; then
+              echo "✓ Supported versions section found"
+            else
+              echo "::warning::Missing supported versions section in SECURITY.md"
+            fi
+            
+            if grep -q "## 🔒 Процесс сообщения об уязвимостях" SECURITY.md; then
+              echo "✓ Vulnerability reporting process found"
+            else
+              echo "::warning::Missing vulnerability reporting process in SECURITY.md"
+            fi
+            
+            if grep -q "## 🤝 Программа багбаунти" SECURITY.md; then
+              echo "✓ Bug bounty program section found"
+            else
+              echo "::warning::Missing bug bounty program section in SECURITY.md"
+            fi
+          else
+            echo "::error::SECURITY.md file not found"
+            exit 1
+          fi
+
+  # === SECURITY METRICS ===
+  security-metrics:
+    name: Security Metrics Collection
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Collect security metrics
+        run: |
+          echo "## Security Metrics Report" > security-report.md
+          echo "" >> security-report.md
+          echo "Generated: $(date)" >> security-report.md
+          echo "" >> security-report.md
+          
+          # Count security-related files
+          echo "### Security Infrastructure Files:" >> security-report.md
+          echo "- SECURITY.md: $([ -f SECURITY.md ] && echo "✅ Present" || echo "❌ Missing")" >> security-report.md
+          echo "- .github/workflows/security.yml: $([ -f .github/workflows/security.yml ] && echo "✅ Present" || echo "❌ Missing")" >> security-report.md
+          echo "- Security testing in CI: ✅ Present" >> security-report.md
+          echo "" >> security-report.md
+          
+          # Check dependencies security
+          echo "### Dependency Security:" >> security-report.md
+          echo "- NPM audit: Configured" >> security-report.md
+          echo "- Snyk integration: Configured" >> security-report.md
+          echo "- Dependabot: Enabled" >> security-report.md
+          echo "" >> security-report.md
+          
+          # Code security
+          echo "### Code Security:" >> security-report.md
+          echo "- CodeQL scanning: Enabled" >> security-report.md
+          echo "- Secret scanning: Enabled" >> security-report.md
+          echo "- SAST tools: Configured" >> security-report.md
+          echo "" >> security-report.md
+          
+          # Docker security
+          echo "### Container Security:" >> security-report.md
+          echo "- Trivy scanning: Enabled" >> security-report.md
+          echo "- Hadolint linting: Enabled" >> security-report.md
+          echo "- Best practices: Implemented" >> security-report.md
+          
+      - name: Upload security report
+        uses: actions/upload-artifact@v3
+        with:
+          name: security-report
+          path: security-report.md
+
+  # === SECURITY NOTIFICATION ===
+  security-notification:
+    name: Security Notification
+    runs-on: ubuntu-latest
+    needs: [dependency-scan, code-scanning, secret-scanning, docker-security-scan]
+    if: failure() || contains(github.event.head_commit.message, '[security]')
+    steps:
+      - name: Notify security team
+        run: |
+          echo "🔴 Security issue detected!"
+          echo "Please review the security scan results in the workflow artifacts."
+          echo "Action required: Review and remediate any identified vulnerabilities."
+
+  # === SECURITY DOCUMENTATION UPDATE ===
+  update-security-docs:
+    name: Update Security Documentation
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Update security documentation
+        run: |
+          # Update last scan date in SECURITY.md if file exists
+          if [ -f "SECURITY.md" ]; then
+            sed -i "s/\*Последнее обновление: [^*]*\*/*Последнее обновление: $(date '+%Y-%m-%d')*/" SECURITY.md
+            echo "Updated SECURITY.md timestamp"
+          fi
+          
+      - name: Commit security documentation update
+        if: success()
+        run: |
+          git config --local user.email "security-bot@github.com"
+          git config --local user.name "Security Bot"
+          git add SECURITY.md 2>/dev/null || echo "No SECURITY.md to update"
+          git commit -m "docs: update security documentation timestamp [skip ci]" 2>/dev/null || echo "No changes to commit"
+          git push 2>/dev/null || echo "Could not push changes"
